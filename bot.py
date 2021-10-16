@@ -94,7 +94,7 @@ class Database:
     def get_timeout(self, member_id: int) -> Union[None, int]:
         query = f"SELECT member_id, counter, last_ban FROM wen_timeouts WHERE member_id = {member_id};"
         result = self.query(query, False)
-        if len(result) > 0:
+        if result is not None and len(result) > 0:
             return result[0]
         return
 
