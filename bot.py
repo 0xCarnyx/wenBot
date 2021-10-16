@@ -1,5 +1,4 @@
 from typing import Union
-import asyncio
 import logging
 import time
 from pathlib import Path
@@ -34,7 +33,6 @@ class Config:
 @dataclass
 class ENV:
     TOKEN = os.environ.get("BOT_TOKEN")
-    DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 class Database:
@@ -66,7 +64,7 @@ class Database:
         statement = "CREATE TABLE IF NOT EXISTS wen_timeouts (member_id INTEGER PRIMARY KEY, counter INTEGER, last_ban INTEGER);"
 
         try:
-            cursor = self.connection()
+            cursor = self.connection.cursor()
             cursor.execute(statement)
             self.connection.commit()
         except Error as e:
