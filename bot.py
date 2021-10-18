@@ -21,7 +21,7 @@ logging.basicConfig(format="%(name)s - %(levelname)s - %(message)s")
 bot = commands.Bot(command_prefix='/', description="This is wenBot 🤖")
 
 
-@tasks.loop(seconds=30)
+@tasks.loop(seconds=2)
 async def check_release():
     """Check every 30 seconds which users have done their time and can get released from timeout prison.
     This approach may seem less elegant than using only coroutines but it gracefully handles bot / server restarts."""
@@ -31,7 +31,7 @@ async def check_release():
             for punished_user in punished_users:
                 user = await guild.fetch_member(punished_user.member_id)
                 if releases_granted(punished_user.punishment_count, punished_user.last_ban):
-                    db.set_unbanned(punished_user.member_id)
+                    db.set_unbanned(punished_user.member_id, guild.id)
                     role = discord.utils.get(guild.roles, name=config.get("PUNISHMENT_ROLE"))
                     await user.remove_roles(role)
 
@@ -47,7 +47,7 @@ async def grant_amnesty(context):
         mentioned_users = context.message.mentions
         for user in mentioned_users:
             db = Database(config.get("DATABASE_FILENAME"))
-            db.remove_entry(user.id)
+            db.remove_entry(user.id, context.guild.id)
 
             role = discord.utils.get(user.guild.roles, name=config.get("PUNISHMENT_ROLE"))
             await user.remove_roles(role)
@@ -96,22 +96,23 @@ def releases_granted(punishment_count: int, last_ban: int) -> bool:
     return False
 
 
-def determine_timeout(member_id: int) -> Union[int, float]:
+def determine_timeout(member_id: int, guild_id: int) -> Union[int, float]:
     """Queries the connected database to determine the timeout the users deserves based on his timeout history.
 
     :param member_id: Discord ID of the member. Primary key of the associated timeout table.
+    :param guild_id: Discord ID of the current guild.
     :return: How many minutes the user should be muted (through role assignment). Infinity if user shall be muted
     forever.
     """
     db = Database(config.get("DATABASE_FILENAME"))
-    timeout = db.get_timeout(member_id)
+    timeout = db.get_timeout(member_id, guild_id)
 
     if timeout is None:
-        db.create_timeout_entry(member_id)
+        db.create_timeout_entry(member_id, guild_id)
         return config.get("FIRST_OFFENSE_PENALTY")
 
     updated_timeout = timeout + 1
-    db.update_timeout(member_id, updated_timeout)
+    db.update_timeout(member_id, guild_id, updated_timeout)
 
     if updated_timeout == 1:
         return config.get("FIRST_OFFENSE_PENALTY")
@@ -152,7 +153,7 @@ async def on_message(message):
     if contains_banned_text(message.content.lower()):
         member = message.author
 
-        timeout = determine_timeout(member.id)
+        timeout = determine_timeout(member.id, message.guild.id)
 
         role = discord.utils.get(member.guild.roles, name=config.get("PUNISHMENT_ROLE"))
         await member.add_roles(role)

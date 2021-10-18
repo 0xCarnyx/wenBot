@@ -37,7 +37,7 @@ class Database:
 
         :return:
         """
-        statement = "CREATE TABLE IF NOT EXISTS wen_timeouts (member_id INTEGER PRIMARY KEY, counter INTEGER, currently_banned INTEGER, last_ban INTEGER);"
+        statement = "CREATE TABLE IF NOT EXISTS wen_timeouts (member_id INTEGER PRIMARY KEY, guild_id INTEGER, counter INTEGER, currently_banned INTEGER, last_ban INTEGER);"
 
         try:
             cursor = self.connection.cursor()
@@ -67,27 +67,27 @@ class Database:
             logging.error(e)
             return
 
-    def get_timeout(self, member_id: int) -> Union[None, int]:
-        query = f"SELECT counter FROM wen_timeouts WHERE member_id = {member_id};"
+    def get_timeout(self, member_id: int, guild_id: int) -> Union[None, int]:
+        query = f"SELECT counter FROM wen_timeouts WHERE member_id = {member_id} AND guild_id = {guild_id};"
         result = self.query(query, False)
         if result is not None and len(result) > 0:
             return result[0]
         return
 
-    def update_timeout(self, member_id: int, updated_timeout: int):
-        statement = f"UPDATE wen_timeouts SET counter = {updated_timeout}, last_ban = {int(time.time())}, currently_banned = 1 WHERE member_id = {member_id};"
+    def update_timeout(self, member_id: int, guild_id: int, updated_timeout: int):
+        statement = f"UPDATE wen_timeouts SET counter = {updated_timeout}, last_ban = {int(time.time())}, currently_banned = 1 WHERE member_id = {member_id} AND guild_id = {guild_id};"
         self.execute(statement)
 
-    def create_timeout_entry(self, member_id: int):
-        statement = f"INSERT INTO wen_timeouts VALUES ({member_id}, 1, 1, {int(time.time())});"
+    def create_timeout_entry(self, member_id: int, guild_id: int):
+        statement = f"INSERT INTO wen_timeouts VALUES ({member_id}, {guild_id}, 1, 1, {int(time.time())});"
         self.execute(statement)
 
-    def set_unbanned(self, member_id: int):
-        statement = f"UPDATE wen_timeouts SET currently_banned = 0 WHERE member_id = {member_id};"
+    def set_unbanned(self, member_id: int, guild_id: int):
+        statement = f"UPDATE wen_timeouts SET currently_banned = 0 WHERE member_id = {member_id} AND guild_id = {guild_id};"
         self.execute(statement)
 
-    def remove_entry(self, member_id: int):
-        statement = f"DELETE FROM wen_timeouts WHERE member_id = {member_id};"
+    def remove_entry(self, member_id: int, guild_id: int):
+        statement = f"DELETE FROM wen_timeouts WHERE member_id = {member_id} AND guild_id = {guild_id};"
         self.execute(statement)
 
     def get_currently_punished_users(self, permaban_threshold: int) -> Union[None, list[PunishedUser]]:
