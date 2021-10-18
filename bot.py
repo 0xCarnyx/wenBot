@@ -65,7 +65,7 @@ async def punish_wen(context):
     if any([discord.utils.get(context.message.author.roles, name=_role) for _role in config.get("MAINTENANCE_ROLES")]):
         mentioned_users = context.message.mentions
         for member in mentioned_users:
-            timeout = determine_timeout(member.id)
+            timeout = determine_timeout(member.id, context.guild.id)
 
             role = discord.utils.get(member.guild.roles, name=config.get("PUNISHMENT_ROLE"))
             await member.add_roles(role)
