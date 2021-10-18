@@ -1,7 +1,7 @@
 from datastructures import PunishedUser
 
 import time
-from typing import Union
+from typing import Union, List
 from pathlib import Path
 import logging
 
@@ -90,7 +90,7 @@ class Database:
         statement = f"DELETE FROM wen_timeouts WHERE member_id = {member_id} AND guild_id = {guild_id};"
         self.execute(statement)
 
-    def get_currently_punished_users(self, permaban_threshold: int) -> Union[None, list[PunishedUser]]:
+    def get_currently_punished_users(self, permaban_threshold: int) -> Union[None, List[PunishedUser]]:
         query = f"SELECT member_id, counter, last_ban FROM wen_timeouts WHERE currently_banned = 1 AND counter <= {permaban_threshold};"
         results = self.query(query, True)
         if results is not None and len(results) > 0:
