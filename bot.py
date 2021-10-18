@@ -1,136 +1,99 @@
-from typing import Union
 import logging
-import time
-from pathlib import Path
 
-from dataclasses import dataclass
+from db import Database
+from datastructures import ENV
+import utils
+
+from typing import Union
+import time
 import math
-import os
+
+import regex as re
 
 import discord.utils
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-import sqlite3
-from sqlite3 import Error
+config = utils.read_config()
+
 
 logging.basicConfig(format="%(name)s - %(levelname)s - %(message)s")
-
-
-@dataclass
-class Config:
-    ADMIN_ROLE: str = "Wubba Lubba Dub Dub"
-    PUNISHMENT_ROLE: str = "Where are my testicles?"
-
-    FIRST_OFFENSE_PENALTY: int = 300
-    FIRST_OFFENSE_LIMIT: int = 1
-    SECOND_OFFENSE_PENALTY: int = 3600
-    SECOND_OFFENSE_LIMIT: int = 4
-    LAST_OFFENSE_PENALTY: float = math.inf
-
-    DATABASE_FILENAME: str = "timeout.db"
-
-
-@dataclass
-class ENV:
-    TOKEN = os.environ.get("BOT_TOKEN")
-
-
-class Database:
-    def __init__(self, database):
-        self.connection = self.create_db_connection(database)
-        self.create_table()
-
-    @staticmethod
-    def create_db_connection(db_file: Path):
-        """Creates a connection to a specified SQLite database file
-
-        :param db_file: Path to the SQLite database file
-        :return:
-        """
-        conn = None
-        try:
-            conn = sqlite3.connect(db_file)
-            return conn
-        except Error as e:
-            logging.warning(e)
-
-        return conn
-
-    def create_table(self):
-        """Creates wen_timeouts table in case it doesn't already exist
-
-        :return:
-        """
-        statement = "CREATE TABLE IF NOT EXISTS wen_timeouts (member_id INTEGER PRIMARY KEY, counter INTEGER, last_ban INTEGER);"
-
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute(statement)
-            self.connection.commit()
-        except Error as e:
-            logging.error(e)
-
-    def execute(self, statement: str):
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute(statement)
-            self.connection.commit()
-        except Error as e:
-            logging.error(e)
-
-    def query(self, query: str, fetchall: bool):
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute(query)
-
-            if fetchall:
-                return cursor.fetchall()
-            return cursor.fetchone()
-
-        except Error as e:
-            logging.error(e)
-            return
-
-    def get_timeout(self, member_id: int) -> Union[None, int]:
-        query = f"SELECT member_id, counter, last_ban FROM wen_timeouts WHERE member_id = {member_id};"
-        result = self.query(query, False)
-        if result is not None and len(result) > 0:
-            return result[0]
-        return
-
-    def update_timeout(self, member_id: int, count: int):
-        statement = f"UPDATE wen_timeouts SET count = {count + 1}, time = {int(time.time())} WHERE member_id = {member_id};"
-        self.execute(statement)
-
-    def create_timeout_entry(self, member_id: int):
-        statement = f"INSERT INTO wen_timeouts VALUES ({member_id}, {1}, {int(time.time())});"
-        self.execute(statement)
-
-    def remove_entry(self, member_id: int):
-        statement = f"DELETE FROM wen_timeouts WHERE member_id = {member_id}"
-        self.execute(statement)
-
 
 bot = commands.Bot(command_prefix='/', description="This is wenBot 🤖")
 
 
+@tasks.loop(seconds=30)
+async def check_release():
+    """Check every 30 seconds which users have done their time and can get released from timeout prison.
+    This approach may seem less elegant than using only coroutines but it gracefully handles bot / server restarts."""
+    for guild in bot.guilds:
+        db = Database(config.get("DATABASE_FILENAME"))
+        if punished_users := db.get_currently_punished_users(config["SECOND_OFFENSE_LIMIT"]):
+            for punished_user in punished_users:
+                user = await guild.fetch_member(punished_user.member_id)
+                if releases_granted(punished_user.punishment_count, punished_user.last_ban):
+                    db.set_unbanned(punished_user.member_id)
+                    role = discord.utils.get(guild.roles, name=config.get("PUNISHMENT_ROLE"))
+                    await user.remove_roles(role)
+
+
 @bot.command(name="grant-amnesty", pass_context=True)
 async def grant_amnesty(context):
-    """Allows the admin to grant amnesty to n mentioned users. This will immediately remove the assigned role
-    and remove the users entry from the timeout database.
+    """Allows users with a maintenance role to grant amnesty to all mentioned users. This will immediately remove the
+    assigned role and remove the users entry from the timeout database.
 
     :param context: Context of the command
-    :return:
     """
-    if discord.utils.get(context.message.author.roles, name=Config.ADMIN_ROLE):
+    if any([discord.utils.get(context.message.author.roles, name=_role) for _role in config.get("MAINTENANCE_ROLES")]):
         mentioned_users = context.message.mentions
         for user in mentioned_users:
-            db = Database(Config.DATABASE_FILENAME)
+            db = Database(config.get("DATABASE_FILENAME"))
             db.remove_entry(user.id)
 
-            role = discord.utils.get(user.guild.roles, name=Config.PUNISHMENT_ROLE)
+            role = discord.utils.get(user.guild.roles, name=config.get("PUNISHMENT_ROLE"))
             await user.remove_roles(role)
-        await context.send(f"{' '.join([_user.name for _user in mentioned_users])} were granted amnesty.")
+        verb = "were" if len(mentioned_users) > 1 else "was"
+        if mentioned_users:
+            await context.send(f"{' '.join([_user.name for _user in mentioned_users])} {verb} granted amnesty.")
+
+
+@bot.command(name="punish-wen", pass_context=True)
+async def punish_wen(context):
+    """Allows users with a maintenance role to manually punish users for violation of the rules.
+
+    :param context: Context of the command
+    """
+    if any([discord.utils.get(context.message.author.roles, name=_role) for _role in config.get("MAINTENANCE_ROLES")]):
+        mentioned_users = context.message.mentions
+        for member in mentioned_users:
+            timeout = determine_timeout(member.id)
+
+            role = discord.utils.get(member.guild.roles, name=config.get("PUNISHMENT_ROLE"))
+            await member.add_roles(role)
+            logging.info(f'Action: Role {config.get("PUNISHMENT_ROLE")} added for user {member}')
+
+            if math.isinf(timeout):
+                timeout_text = f"wen = ban. {member.name} muted forever."
+            else:
+                timeout_text = f"wen = ban. {member.name} muted for {int(timeout / 60)} minutes."
+            await context.send(timeout_text)
+
+
+def releases_granted(punishment_count: int, last_ban: int) -> bool:
+    """Checks whether a user has done his time and can be released based on the configured limits.
+
+    :param punishment_count: How often the user was already punished
+    :param last_ban: Timestamp of the users latest ban
+    :return: Whether the release request was granted
+    """
+    seconds_since_last_ban = int(time.time()) - last_ban
+
+    if punishment_count == config.get("FIRST_OFFENSE_LIMIT"):
+        if seconds_since_last_ban >= config.get("FIRST_OFFENSE_PENALTY"):
+            return True
+    elif config.get("FIRST_OFFENSE_LIMIT") < punishment_count <= config.get("SECOND_OFFENSE_LIMIT"):
+        if seconds_since_last_ban >= config.get("SECOND_OFFENSE_PENALTY"):
+            return True
+    return False
 
 
 def determine_timeout(member_id: int) -> Union[int, float]:
@@ -140,39 +103,60 @@ def determine_timeout(member_id: int) -> Union[int, float]:
     :return: How many minutes the user should be muted (through role assignment). Infinity if user shall be muted
     forever.
     """
-    db = Database(Config.DATABASE_FILENAME)
-
+    db = Database(config.get("DATABASE_FILENAME"))
     timeout = db.get_timeout(member_id)
 
-    if not timeout:
+    if timeout is None:
         db.create_timeout_entry(member_id)
-        return Config.FIRST_OFFENSE_PENALTY
+        return config.get("FIRST_OFFENSE_PENALTY")
 
     updated_timeout = timeout + 1
     db.update_timeout(member_id, updated_timeout)
 
-    if Config.FIRST_OFFENSE_LIMIT < updated_timeout <= Config.SECOND_OFFENSE_LIMIT:
-        return Config.SECOND_OFFENSE_PENALTY
-    elif updated_timeout >= 5:
-        return Config.LAST_OFFENSE_PENALTY
+    if updated_timeout == 1:
+        return config.get("FIRST_OFFENSE_PENALTY")
+    elif config.get("FIRST_OFFENSE_LIMIT") < updated_timeout <= config.get("SECOND_OFFENSE_LIMIT"):
+        return config.get("SECOND_OFFENSE_PENALTY")
+    elif updated_timeout > config.get("SECOND_OFFENSE_LIMIT"):
+        return math.inf
+
+
+def contains_banned_text(message: str) -> bool:
+    """Uses regular expression patterns to check whether a message contains bannable text.
+
+    :param message: lower cased message content
+    :return: Whether the users deservers a ban or not
+    """
+    patterns = [r"\b(wen)\b",
+                r"(^|\s)(when)(?:\s+\w+)?\?($|\s)",
+                r"(wen|when)\s(token|airdrop)($|\s)"]
+
+    for pattern in patterns:
+        if re.search(pattern, message):
+            return True
+    return False
 
 
 @bot.listen("on_message")
 async def on_message(message):
-    if message.author == bot.user or discord.utils.get(message.author.roles, name=Config.ADMIN_ROLE):
+    """Listener which checks every message for rule violations and takes action if necessary
+
+    :param message:
+    """
+    if message.author == bot.user or any([discord.utils.get(message.author.roles, name=_role)
+                                          for _role in config.get("MAINTENANCE_ROLES")]):
         return
 
     message_channel = bot.get_channel(message.channel.id)
-    message_tokens = [msg.lower() for msg in message.content.split()]
 
-    if 'wen' in message_tokens:
+    if contains_banned_text(message.content.lower()):
         member = message.author
 
         timeout = determine_timeout(member.id)
 
-        role = discord.utils.get(member.guild.roles, name=Config.PUNISHMENT_ROLE)
+        role = discord.utils.get(member.guild.roles, name=config.get("PUNISHMENT_ROLE"))
         await member.add_roles(role)
-        print(f'Action: Role {Config.PUNISHMENT_ROLE} added for user {member}')
+        logging.info(f'Action: Role {config.get("PUNISHMENT_ROLE")} added for user {member}')
 
         if math.isinf(timeout):
             timeout_text = f"wen = ban. {member.name} muted forever."
@@ -180,4 +164,5 @@ async def on_message(message):
             timeout_text = f"wen = ban. {member.name} muted for {int(timeout / 60)} minutes."
         await message_channel.send(timeout_text)
 
+check_release.start()
 bot.run(ENV.TOKEN)

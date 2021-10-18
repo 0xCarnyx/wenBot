@@ -1,0 +1,17 @@
+# Users with this role can call commands (e. g. granting amnesty)
+MAINTENANCE_ROLES:
+  - "Wubba Lubba Dub Dub"
+# Users who infringe the specified rules get this role as punishment
+PUNISHMENT_ROLE: "Where are my testicles?"
+
+# Time in minutes for which users get the punishment role / muted on their first offense
+FIRST_OFFENSE_PENALTY: 300
+# How often users can infringe the rules while still getting the first offense penalty
+FIRST_OFFENSE_LIMIT: 1
+# Time in minutes for which users get the punishment role / muted on their second offense
+SECOND_OFFENSE_PENALTY: 3600
+# How often users can infringe the rules while still getting the second offense penalty
+SECOND_OFFENSE_LIMIT: 4
+
+# Filename of the SQLite database
+DATABASE_FILENAME: "timeout.db"
