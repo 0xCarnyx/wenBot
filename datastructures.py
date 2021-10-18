@@ -1,5 +1,8 @@
 from dataclasses import dataclass
-import os
+
+from dotenv import dotenv_values
+
+config = dotenv_values(".env")
 
 
 @dataclass
@@ -11,4 +14,4 @@ class PunishedUser:
 
 @dataclass
 class ENV:
-    TOKEN = os.environ.get("BOT_TOKEN")
+    TOKEN = config.get("BOT_TOKEN")

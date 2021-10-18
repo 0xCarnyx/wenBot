@@ -11,9 +11,9 @@ Install all necessary dependencies
 ```
 pip install -r requirements.txt
 ```
-Set the Discord bot token as env
+Set the Discord bot token in a filed called `.env` in the root of this repository (see `template.env`).
 ```
-export BOT_TOKEN=<InsertBotToken>
+BOT_TOKEN=<InsertBotToken>
 ```
 Configure the `config.yaml` to your likings and start the bot
 ```
