@@ -1,5 +1,5 @@
 # wenBot
-Discord bot for the LevX DAO discord which bans the w word
+Discord bot for the LevX DAO discord which "mutes" members for using the w word
 
 ## Getting started
 Create a virtual environment and activate it
