@@ -129,7 +129,7 @@ def contains_banned_text(message: str) -> bool:
     :return: Whether the users deservers a ban or not
     """
     patterns = [r"\b(wen)\b",
-                r"(^|\s)(when)(?:\s+\w+)?\?($|\s)",
+                r"(^|\s)(when)(?:\s+\w+){1}(\s)*\?($|\s)",
                 r"(wen|when)\s(token|airdrop)($|\s)"]
 
     for pattern in patterns:
