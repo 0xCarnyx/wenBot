@@ -21,7 +21,7 @@ logging.basicConfig(format="%(name)s - %(levelname)s - %(message)s")
 bot = commands.Bot(command_prefix='/', description="This is wenBot 🤖")
 
 
-@tasks.loop(seconds=2)
+@tasks.loop(seconds=60)
 async def check_release():
     """Check every 30 seconds which users have done their time and can get released from timeout prison.
     This approach may seem less elegant than using only coroutines but it gracefully handles bot / server restarts."""
